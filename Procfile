@@ -1,1 +1,1 @@
-git push -u origin main
+worker: python3 -m AnonXMusic
