@@ -139,9 +139,19 @@ class YouTubeAPI:
             link = self.listbase + link
         if "&" in link:
             link = link.split("&")[0]
-        playlist = await shell_cmd(
-            f"yt-dlp -i --get-id --flat-playlist --playlist-end {limit} --skip-download {link}"
-        )
+        cmd = [
+            "yt-dlp",
+            "--cookies",
+            "cookies.txt",
+            "-i",
+            "--get-id",
+            "--flat-playlist",
+            "--playlist-end",
+            str(limit),
+            "--skip-download",
+            link,
+        ]
+        playlist = await shell_cmd(" ".join(cmd))
         try:
             result = playlist.split("\n")
             for key in result:
@@ -250,13 +260,18 @@ class YouTubeAPI:
                 "quiet": True,
                 "no_warnings": True,
             }
-            x = yt_dlp.YoutubeDL(ydl_optssx)
-            info = x.extract_info(link, False)
-            xyz = os.path.join("downloads", f"{info['id']}.{info['ext']}")
-            if os.path.exists(xyz):
+            try:
+                x = yt_dlp.YoutubeDL(ydl_optssx)
+                info = x.extract_info(link, download=False)
+                xyz = os.path.join("downloads", f"{info['id']}.{info['ext']}")
+                if os.path.exists(xyz):
+                    return xyz
+                x.download([link])
+                if not os.path.exists(xyz):
+                    raise Exception("Download failed: File not found after download.")
                 return xyz
-            x.download([link])
-            return xyz
+            except Exception as e:
+                raise Exception(f"Audio download failed: {str(e)}")
 
         def video_dl():
             ydl_optssx = {
@@ -267,13 +282,18 @@ class YouTubeAPI:
                 "quiet": True,
                 "no_warnings": True,
             }
-            x = yt_dlp.YoutubeDL(ydl_optssx)
-            info = x.extract_info(link, False)
-            xyz = os.path.join("downloads", f"{info['id']}.{info['ext']}")
-            if os.path.exists(xyz):
+            try:
+                x = yt_dlp.YoutubeDL(ydl_optssx)
+                info = x.extract_info(link, download=False)
+                xyz = os.path.join("downloads", f"{info['id']}.{info['ext']}")
+                if os.path.exists(xyz):
+                    return xyz
+                x.download([link])
+                if not os.path.exists(xyz):
+                    raise Exception("Download failed: File not found after download.")
                 return xyz
-            x.download([link])
-            return xyz
+            except Exception as e:
+                raise Exception(f"Video download failed: {str(e)}")
 
         def song_video_dl():
             formats = f"{format_id}+140"
@@ -288,8 +308,13 @@ class YouTubeAPI:
                 "prefer_ffmpeg": True,
                 "merge_output_format": "mp4",
             }
-            x = yt_dlp.YoutubeDL(ydl_optssx)
-            x.download([link])
+            try:
+                x = yt_dlp.YoutubeDL(ydl_optssx)
+                x.download([link])
+                if not os.path.exists(f"{fpath}.mp4"):
+                    raise Exception("Song video download failed: File not found.")
+            except Exception as e:
+                raise Exception(f"Song video download failed: {str(e)}")
 
         def song_audio_dl():
             fpath = f"downloads/{title}.%(ext)s"
@@ -309,38 +334,46 @@ class YouTubeAPI:
                     }
                 ],
             }
-            x = yt_dlp.YoutubeDL(ydl_optssx)
-            x.download([link])
+            try:
+                x = yt_dlp.YoutubeDL(ydl_optssx)
+                x.download([link])
+                if not os.path.exists(f"{fpath.replace('.%(ext)s', '.mp3')}"):
+                    raise Exception("Song audio download failed: File not found.")
+            except Exception as e:
+                raise Exception(f"Song audio download failed: {str(e)}")
 
-        if songvideo:
-            await loop.run_in_executor(None, song_video_dl)
-            fpath = f"downloads/{title}.mp4"
-            return fpath
-        elif songaudio:
-            await loop.run_in_executor(None, song_audio_dl)
-            fpath = f"downloads/{title}.mp3"
-            return fpath
-        elif video:
-            if await is_on_off(1):
-                direct = True
-                downloaded_file = await loop.run_in_executor(None, video_dl)
-            else:
-                proc = await asyncio.create_subprocess_exec(
-                    "yt-dlp",
-                    "-g",
-                    "-f",
-                    "best[height<=?720][width<=?1280]",
-                    f"{link}",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, stderr = await proc.communicate()
-                if stdout:
-                    downloaded_file = stdout.decode().split("\n")[0]
-                    direct = None
+        try:
+            if songvideo:
+                await loop.run_in_executor(None, song_video_dl)
+                fpath = f"downloads/{title}.mp4"
+                return fpath
+            elif songaudio:
+                await loop.run_in_executor(None, song_audio_dl)
+                fpath = f"downloads/{title}.mp3"
+                return fpath
+            elif video:
+                if await is_on_off(1):
+                    direct = True
+                    downloaded_file = await loop.run_in_executor(None, video_dl)
                 else:
-                    return
-        else:
-            direct = True
-            downloaded_file = await loop.run_in_executor(None, audio_dl)
-        return downloaded_file, direct
+                    proc = await asyncio.create_subprocess_exec(
+                        "yt-dlp",
+                        "-g",
+                        "-f",
+                        "best[height<=?720][width<=?1280]",
+                        f"{link}",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    stdout, stderr = await proc.communicate()
+                    if stdout:
+                        downloaded_file = stdout.decode().split("\n")[0]
+                        direct = None
+                    else:
+                        raise Exception(f"Video stream fetch failed: {stderr.decode()}")
+            else:
+                direct = True
+                downloaded_file = await loop.run_in_executor(None, audio_dl)
+            return downloaded_file, direct
+        except Exception as e:
+            raise Exception(f"Download error: {str(e)}")
